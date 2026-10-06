@@ -63,7 +63,7 @@ The goal of nano11 is to automate the creation of a streamlined Windows 11 image
   - **Obsolete FOD Packages Removed**: Purges deprecated and unused optional features including `WMIC` (deprecated in 24H2), `Printing-WFS` (Fax & Scan), `WirelessDisplay` (Miracast Connect), `SNMP`, `Telnet`, `SimpleTCP`, and `RDC`.
   - **Offline System Caches & Setup Logs Cleaned**: Wipes build-time update caches (`SoftwareDistribution\Download`), `System32\LogFiles`, `Prefetch`, and setup temporary files before unmounting.
   - **High-Speed Stable LZX install.wim Export & Setup Error 0x8007000D Fix**: Defaults to rock-solid LZX `/Compress:max` export to `sources\install.wim` (exports in ~20 seconds), preventing the known Windows 11 24H2 DISM `WIMGAPI.DLL` crash (`0xc0000005`) that occurred during LZMS solid recovery compression. Eliminates the critical bug where a crashed 208-byte `install.esd` remnant caused the valid `install.wim` to be deleted, which resulted in Windows Setup error `0x8007000D - 0x4002C` (ERROR_INVALID_DATA). Includes strict payload (> 1 GB) and ISO (> 1.5 GB) size validation, with an optional `-ExportESD` flag for systems that support solid LZMS export.
-  - **Zero Setup-Breaking Hacks**: Strictly keeps `winre.wim` intact during offline build (preventing `0x80070002` SafeOS staging failures) and keeps `boot.wim` under LZX `/Compress:max` (avoiding `0xc0000001` unbootable media), with CBS component integrity guaranteed via official DISM `StartComponentCleanup /ResetBase`.
+  - **Zero Setup-Breaking Hacks**: Strictly keeps `winre.wim` intact during offline build (preventing `0x80070002` SafeOS staging failures) and keeps `boot.wim` under LZX `/Compress:max` (avoiding `0xc0000001` unbootable media), with CBS component integrity preserved via official DISM `StartComponentCleanup` (add `-ResetBase` to also remove superseded components; see below).
 - **🚫 Safe Debloat & Suppression of Target Components**:
   - **Windows Backup (Windows バックアップ)**: Complete policy suppression (`DisableBackupRestore = 1`, `DisableCloudBackup = 1`, `DisableConsumerAccountStateContent = 1`), `AppListBackup` scheduled task removal, and concealment from Settings (`hide:backup`). Avoids breaking `Client.CBS` system dependencies.
   - **Windows Security & Defender (Windows セキュリティ)**: Services disabled (`WinDefend`, `WdNisSvc`, `SecurityHealthService` = 4), real-time protection and antispyware policies enforced, startup system tray entry (`SecurityHealth`) removed, and settings page hidden (`hide:virus`).
@@ -78,7 +78,7 @@ The goal of nano11 is to automate the creation of a streamlined Windows 11 image
   - **🖱️ Mouse Cursor & Pointer Display Guarantee**: Preserves essential Windows cursor bitmaps in `C:\Windows\Cursors` (~5 MB), ensuring the mouse pointer (`aero_arrow.cur`) is always rendered and fully functional throughout setup and on the installed desktop.
   - **Account Collision Resolved**: Centralized local account creation cleanly into `oobeSystem` `<LocalAccount wcm:action="add">`, eliminating `ERROR_USER_EXISTS` (0x80070524) collisions with `Specialize.ps1`.
   - **Setup Pre-Finalize SafeOS Crash Fixed**: Solved the `0x80070002` / `0x8007000B` error where Windows Setup crashes at ~100% when attempting to stage missing or corrupt `winre.wim`. `winre.wim` is preserved at build time and removed cleanly via online `reagentc /disable` during `FirstLogon.ps1`.
-  - **SafeDebloat Component Store Mode (Default)**: Protects CBS servicing integrity and localized (`ja-JP`) resources using official DISM `StartComponentCleanup /ResetBase` + cache pruning. Aggressive pruning mode (`-AggressiveWinSxS`) is also available with comprehensive core system and language preservation.
+  - **SafeDebloat Component Store Mode (Default)**: Protects CBS servicing integrity and localized (`ja-JP`) resources using official DISM `StartComponentCleanup` + cache pruning. It deliberately omits `/ResetBase` (reported to make Windows Setup freeze at 77%), so superseded update payloads and removed packages stay in WinSxS, often several GB; the `-ResetBase` switch opts in to removing them. Aggressive pruning mode (`-AggressiveWinSxS`) is also available with comprehensive core system and language preservation.
   - **Administrator Account Auto-Activation**: Explicitly activates the built-in Administrator account in `Specialize.ps1` for seamless unattended setup across Windows 11 Home and Pro editions.
   - **Setup Script Pre-Extraction**: Unattend scripts (`Specialize.ps1`, `DefaultUser.ps1`, etc.) are pre-extracted directly into the image during build time with robust `try/catch` error shielding, preventing specialize pass aborts.
   - **Bootable WIM Exports**: Added `/Bootable` flag to all `boot.wim` exports to prevent `0xc1510115` errors across all UEFI/BIOS firmware.
@@ -284,6 +284,7 @@ You can run the builder completely unattended with built-in presets and modular 
 | `-EnableWSL` / `-DisableWSL` (`-NoWSL`) | Pre-enables or disables WSL2 & Virtual Machine Platform |
 | `-KeepRecovery` (`-KeepWinRE`) / `-RemoveRecovery` (`-NoRecovery`) | Retains or removes Windows Recovery Environment WinRE |
 | `-SafeDebloat` (`-SafeWinSxS`) / `-AggressiveWinSxS` (`-TrimWinSxS`) | Component Store cleanup mode |
+| `-ResetBase` | Safe mode only: adds `/ResetBase` to the component cleanup, permanently removing superseded component versions and removed packages' payloads. Largest effect on refreshed ISOs that ship with a cumulative update applied (one such arm64 image reported 3.6 GB of "Backups and Disabled Features" after the default cleanup). Off by default because of the 77% Setup freeze reports above, so test-install the image in a VM first |
 | `-UltraSlim` / `-NoUltraSlim` | Enables or disables UltraSlim target mode |
 | `-JapaneseKeyboard` / `-NoJapaneseKeyboard` | Enforces or skips Japanese 106/109 keyboard layout configuration |
 | `-AtlasReviOS` / `-NoAtlasReviOS` | Enables or skips AtlasOS & ReviOS debloat and low-latency tuning |
@@ -334,7 +335,7 @@ The **Build nano11 ISO** workflow (`.github/workflows/build-nano11.yml`) runs th
 | `defender`, `asian_ime`, `fonts`, `drivers`, `recovery`, `store`, `xbox_services` | `-Keep…` / `-Remove…` pairs |
 | `windows_update`, `bluetooth` | `-Keep…` / `-Disable…` pairs |
 | `wsl`, `ultraslim`, `japanese_keyboard`, `atlas_revios` | `-EnableWSL`/`-DisableWSL`, `-UltraSlim`/`-NoUltraSlim`, `-JapaneseKeyboard`/`-NoJapaneseKeyboard`, `-AtlasReviOS`/`-NoAtlasReviOS` |
-| `winsxs_mode` | `-SafeDebloat` / `-AggressiveWinSxS` |
+| `winsxs_mode` | `-SafeDebloat` / `-AggressiveWinSxS` (add `-ResetBase` via `extra_args` for a smaller image) |
 | `payload_format` | `-ExportWIM` / `-ExportESD` / `-SplitWIM` |
 | `activation_bypass` | `-BypassActivationRestrictions` (`disable` passes `:$false`) |
 | `extra_args` | Any other parameter, space separated, e.g. `-DisableFSE -HibernateMode Off -PowerPreset Handheld -FastExport -TweakGroupOverrides VisualFX=false,TimerBCD=true` |

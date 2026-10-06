@@ -99,6 +99,8 @@ param(
     [switch]$SafeDebloat,
     [alias("TrimWinSxS")]
     [switch]$AggressiveWinSxS,
+    # Opt-in: add /ResetBase to the safe cleanup (removes superseded component versions)
+    [switch]$ResetBase,
     
     # 10. UltraSlim
     [switch]$UltraSlim,
@@ -3152,6 +3154,7 @@ Write-Host "  - Enable WSL2 Platform:    $wslSupport"
 Write-Host "  - Keep Recovery (WinRE):   $keepRecoveryEnv"
 Write-Host "  - Bypass Activation Limit: $bypassActivationRestrictions"
 Write-Host "  - Safe Debloat (WinSxS):   $safeDebloatMode"
+if ($safeDebloatMode) { Write-Host "  - ResetBase (WinSxS):      $([bool]$ResetBase)" }
 Write-Host "  - UltraSlim (~3GB ISO):    $ultraSlimMode"
 Write-Host "  - Japanese 106 Keyboard:   $setJapaneseKeyboard"
 Write-Host "  - AtlasOS & ReviOS Tuning: $atlasReviOSMode"
@@ -4245,11 +4248,18 @@ Enter-Phase 9 "Component Store (WinSxS) Optimization"
 if ($safeDebloatMode) {
     Write-Host "Consolidating component store safely via DISM Component Cleanup..." -ForegroundColor Green
     Write-Host "  -> DISM is optimizing component packages. Progress will display below..." -ForegroundColor Cyan
-    # Note: We omit /ResetBase because offline /ResetBase on an image with package removals
-    # corrupts delta manifests and causes Windows Setup file expansion to freeze at 77%.
-    # Standard /StartComponentCleanup is 100% stable and fully preserves Setup integrity.
-    & dism.exe /English "/image:$scratchDir" /Cleanup-Image /StartComponentCleanup
-    Write-Host "  - Component store consolidated safely (WinSxS manifest integrity preserved for zero 77% stalls)." -ForegroundColor Green
+    # Note: /ResetBase is omitted by default because offline /ResetBase on an image with package
+    # removals has been reported to make Windows Setup file expansion freeze at 77%.
+    # Without it, superseded component versions and removed packages' payloads stay in WinSxS
+    # ("Backups and Disabled Features"), which is often several GB. -ResetBase opts in.
+    if ($ResetBase) {
+        Write-Host "  -> /ResetBase requested: superseded component versions will be removed permanently." -ForegroundColor Yellow
+        & dism.exe /English "/image:$scratchDir" /Cleanup-Image /StartComponentCleanup /ResetBase
+        Write-Host "  - Component store consolidated with /ResetBase (test-install this image before relying on it)." -ForegroundColor Green
+    } else {
+        & dism.exe /English "/image:$scratchDir" /Cleanup-Image /StartComponentCleanup
+        Write-Host "  - Component store consolidated safely (WinSxS manifest integrity preserved for zero 77% stalls)." -ForegroundColor Green
+    }
 } else {
     Write-Host "Running Aggressive WinSxS Pruning (Experimental)..." -ForegroundColor Yellow
     # Pre-cleanup DISM component base before trimming
@@ -5952,8 +5962,14 @@ Invoke-Dism -DismArgs @("/image:$scratchDir", "/Get-Features", "/Format:Table") 
 $script:WinsxsAfterRaw = Invoke-Dism -DismArgs @("/image:$scratchDir", "/Cleanup-Image", "/AnalyzeComponentStore") -CaptureOutput
 $script:WinsxsAfterRaw | Set-Content -LiteralPath $winsxsAfterPath -Encoding utf8
 
-$pkgsBefore = Get-Content -LiteralPath $pkgBeforePath -ErrorAction SilentlyContinue | Where-Object { $_ -match 'Package_' }
-$pkgsAfter  = Get-Content -LiteralPath $pkgAfterPath -ErrorAction SilentlyContinue | Where-Object { $_ -match 'Package_' }
+# Table rows look like "<Package Identity> | <State> | ..."; identities always contain '~'.
+$getPkgIds = {
+    param([string]$Path)
+    Get-Content -LiteralPath $Path -ErrorAction SilentlyContinue |
+        ForEach-Object { if ($_ -match '^\s*([^|\s]+~[^|\s]*)\s*\|') { $matches[1] } }
+}
+$pkgsBefore = @(& $getPkgIds $pkgBeforePath)
+$pkgsAfter  = @(& $getPkgIds $pkgAfterPath)
 $script:RemovedPackages = @()
 if ($pkgsBefore -and $pkgsAfter) {
     $diff = Compare-Object -ReferenceObject $pkgsBefore -DifferenceObject $pkgsAfter -ErrorAction SilentlyContinue
