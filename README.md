@@ -315,6 +315,35 @@ You can run the builder completely unattended with built-in presets and modular 
 
 When finished, your bootable ISO will be generated in the script directory as `nano11.iso` with SHA256 verification hash displayed!
 
+### **4. Building in the Cloud with GitHub Actions (No Local Windows Needed)**
+
+The **Build nano11 ISO** workflow (`.github/workflows/build-nano11.yml`) runs the builder on a GitHub-hosted Windows runner, so you can produce an ISO from any OS.
+
+1. Fork this repository (or push it to your own) and make sure GitHub Actions is enabled.
+2. Open **Actions → Build nano11 ISO → Run workflow** and pick your options.
+3. When the run finishes, download the `nano11-<profile>-run<N>` artifact (ISO + `nano11_SHA256SUMS.txt`). Build logs and the HTML report are in the `nano11-logs-run<N>` artifact.
+
+**Source ISO:** the workflow uses, in order: the `iso_url` input, the `WINDOWS11_ISO_URL` repository secret, or the latest retail Windows 11 ISO fetched from Microsoft with [Fido](https://github.com/pbatard/Fido) (using the `iso_language` and `architecture` inputs). Microsoft sometimes refuses download requests from cloud IP ranges; if Fido fails, set `iso_url` or the secret to a direct ISO link. You can also set `iso_sha256` to verify the download.
+
+**Options:** each customization input maps onto the matching CLI switch from the table above (`default` keeps the profile's choice):
+
+| Workflow input | CLI parameter(s) |
+| :--- | :--- |
+| `profile` | `-Profile` (`none` = builder baseline) |
+| `image_index` / `computer_name` / `user_name` | `-Index` / `-ComputerName` / `-UserName` |
+| `defender`, `asian_ime`, `fonts`, `drivers`, `recovery`, `store`, `xbox_services` | `-Keep…` / `-Remove…` pairs |
+| `windows_update`, `bluetooth` | `-Keep…` / `-Disable…` pairs |
+| `wsl`, `ultraslim`, `japanese_keyboard`, `atlas_revios` | `-EnableWSL`/`-DisableWSL`, `-UltraSlim`/`-NoUltraSlim`, `-JapaneseKeyboard`/`-NoJapaneseKeyboard`, `-AtlasReviOS`/`-NoAtlasReviOS` |
+| `winsxs_mode` | `-SafeDebloat` / `-AggressiveWinSxS` |
+| `payload_format` | `-ExportWIM` / `-ExportESD` / `-SplitWIM` |
+| `activation_bypass` | `-BypassActivationRestrictions` (`disable` passes `:$false`) |
+| `extra_args` | Any other parameter, space separated, e.g. `-DisableFSE -HibernateMode Off -PowerPreset Handheld -FastExport -TweakGroupOverrides VisualFX=false,TimerBCD=true` |
+
+`extra_args` values cannot contain spaces. `-InjectDrivers` accepts a folder path relative to the repository root, so you can commit drivers to your fork. Parameters that only make sense on a desktop (`-GUI`, `-Interactive`, `-Resume`, `-TestSelf`, `-SaveProfile`, `-LoadProfile`) and the ones the workflow manages (`-SourceDrive`, `-WorkDir`, `-NonInteractive`) are rejected. Inputs are validated before the ISO is downloaded, so typos and conflicting switches fail within seconds.
+
+> [!NOTE]
+> GitHub-hosted runners have a 6-hour job limit; a typical build takes well under that. Artifacts are kept for 7 days (`ARTIFACT_RETENTION_DAYS` in the workflow). Builds count against your Actions minutes for private repositories.
+
 ---
 
 ## 🛠️ Installation & Setup Guide (ゼロクリック自動インストール)

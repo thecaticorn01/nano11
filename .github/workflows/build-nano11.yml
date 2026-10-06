@@ -1,0 +1,287 @@
+# Builds a nano11 ISO on a GitHub-hosted Windows runner, so no local Windows
+# install is needed. Start it from Actions > "Build nano11 ISO" > Run workflow.
+#
+# Every input maps onto a nano11builder.ps1 parameter (see .github/scripts/Invoke-Nano11CI.ps1).
+# "default" leaves the choice to the selected profile (or the builder's baseline when profile = none).
+# Parameters without a dedicated input can be passed through `extra_args`.
+
+name: Build nano11 ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      # ---- Source media ---------------------------------------------------
+      iso_url:
+        description: "Windows 11 ISO download URL. Empty = WINDOWS11_ISO_URL secret, else latest retail ISO from Microsoft via Fido"
+        type: string
+        default: ""
+      iso_sha256:
+        description: "Optional SHA256 of the source ISO to verify the download"
+        type: string
+        default: ""
+      iso_language:
+        description: "Fido only: ISO language as listed by Microsoft (e.g. English, English International, Japanese, German)"
+        type: string
+        default: "English"
+      architecture:
+        description: "Fido only: ISO architecture to download"
+        type: choice
+        options: [x64, arm64]
+        default: x64
+      # ---- Build profile (-Profile, -Index, -ComputerName, -UserName) ---
+      profile:
+        description: "Built-in preset (-Profile). none = builder baseline defaults"
+        type: choice
+        options: [extreme, balanced, fat32, handheld, vm, audio, none]
+        default: extreme
+      image_index:
+        description: "Edition index to service (-Index). Empty = Pro edition"
+        type: string
+        default: ""
+      computer_name:
+        description: "Computer name (-ComputerName). '*' = random. Empty = builder default"
+        type: string
+        default: ""
+      user_name:
+        description: "Local account name (-UserName). Empty = builder default (User)"
+        type: string
+        default: ""
+      # ---- Customization switches ---------------------------------------
+      defender:
+        description: "Windows Defender (-KeepDefender / -RemoveDefender)"
+        type: choice
+        options: [default, keep, remove]
+        default: default
+      asian_ime:
+        description: "Asian IMEs (-KeepIME / -RemoveIME)"
+        type: choice
+        options: [default, keep, remove]
+        default: default
+      fonts:
+        description: "Extra international fonts (-KeepFonts / -RemoveFonts)"
+        type: choice
+        options: [default, keep, remove]
+        default: default
+      drivers:
+        description: "Non-essential drivers: printers, scanners, fax (-KeepDrivers / -RemoveDrivers)"
+        type: choice
+        options: [default, keep, remove]
+        default: default
+      windows_update:
+        description: "Windows Update (-KeepWindowsUpdate / -DisableWindowsUpdate)"
+        type: choice
+        options: [default, keep, disable]
+        default: default
+      bluetooth:
+        description: "Bluetooth (-KeepBluetooth / -DisableBluetooth)"
+        type: choice
+        options: [default, keep, disable]
+        default: default
+      wsl:
+        description: "WSL2 & Virtual Machine Platform (-EnableWSL / -DisableWSL)"
+        type: choice
+        options: [default, enable, disable]
+        default: default
+      recovery:
+        description: "Windows Recovery Environment (-KeepRecovery / -RemoveRecovery)"
+        type: choice
+        options: [default, keep, remove]
+        default: default
+      winsxs_mode:
+        description: "WinSxS component store mode (-SafeDebloat / -AggressiveWinSxS)"
+        type: choice
+        options: [default, safe, aggressive]
+        default: default
+      ultraslim:
+        description: "UltraSlim ~3.2 GB target (-UltraSlim / -NoUltraSlim)"
+        type: choice
+        options: [default, enable, disable]
+        default: default
+      japanese_keyboard:
+        description: "Japanese 106/109 keyboard layout (-JapaneseKeyboard / -NoJapaneseKeyboard)"
+        type: choice
+        options: [default, enable, disable]
+        default: default
+      atlas_revios:
+        description: "AtlasOS & ReviOS tweaks (-AtlasReviOS / -NoAtlasReviOS)"
+        type: choice
+        options: [default, enable, disable]
+        default: default
+      payload_format:
+        description: "Install image format: wim (-ExportWIM), esd (-ExportESD), swm split for FAT32 (-SplitWIM)"
+        type: choice
+        options: [default, wim, esd, swm]
+        default: default
+      store:
+        description: "Microsoft Store (-KeepStore / -RemoveStore)"
+        type: choice
+        options: [default, keep, remove]
+        default: default
+      xbox_services:
+        description: "Xbox services & gaming features (-KeepXboxServices / -RemoveXboxServices)"
+        type: choice
+        options: [default, keep, remove]
+        default: default
+      activation_bypass:
+        description: "Activation/personalization restriction bypass (-BypassActivationRestrictions)"
+        type: choice
+        options: [default, enable, disable]
+        default: default
+      # ---- Everything else ---------------------------------------------
+      extra_args:
+        description: "Other builder parameters, space separated, e.g. -DisableFSE -HibernateMode Off -PowerPreset Handheld -FastExport"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  ARTIFACT_RETENTION_DAYS: 7
+  # Fido (https://github.com/pbatard/Fido) fetches official ISO links from Microsoft.
+  FIDO_REF: master
+
+jobs:
+  build:
+    name: Build nano11 (${{ inputs.profile }})
+    # Hosted Windows runners run elevated, which DISM and offline registry servicing require.
+    runs-on: windows-latest
+    timeout-minutes: 360
+    env:
+      NANO11_PROFILE: ${{ inputs.profile }}
+      NANO11_INDEX: ${{ inputs.image_index }}
+      NANO11_COMPUTER_NAME: ${{ inputs.computer_name }}
+      NANO11_USER_NAME: ${{ inputs.user_name }}
+      NANO11_DEFENDER: ${{ inputs.defender }}
+      NANO11_ASIAN_IME: ${{ inputs.asian_ime }}
+      NANO11_FONTS: ${{ inputs.fonts }}
+      NANO11_DRIVERS: ${{ inputs.drivers }}
+      NANO11_WINDOWS_UPDATE: ${{ inputs.windows_update }}
+      NANO11_BLUETOOTH: ${{ inputs.bluetooth }}
+      NANO11_WSL: ${{ inputs.wsl }}
+      NANO11_RECOVERY: ${{ inputs.recovery }}
+      NANO11_WINSXS_MODE: ${{ inputs.winsxs_mode }}
+      NANO11_ULTRASLIM: ${{ inputs.ultraslim }}
+      NANO11_JAPANESE_KEYBOARD: ${{ inputs.japanese_keyboard }}
+      NANO11_ATLAS_REVIOS: ${{ inputs.atlas_revios }}
+      NANO11_PAYLOAD_FORMAT: ${{ inputs.payload_format }}
+      NANO11_STORE: ${{ inputs.store }}
+      NANO11_XBOX_SERVICES: ${{ inputs.xbox_services }}
+      NANO11_ACTIVATION_BYPASS: ${{ inputs.activation_bypass }}
+      NANO11_EXTRA_ARGS: ${{ inputs.extra_args }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Validates every input before spending time on the ISO download.
+      - name: Resolve build configuration
+        shell: powershell
+        run: .\.github\scripts\Invoke-Nano11CI.ps1 -PlanOnly
+
+      - name: Prepare workspace
+        id: workspace
+        shell: powershell
+        run: |
+          # Use the NTFS volume with the most free space; a build needs roughly 25-40 GB.
+          $drive = [System.IO.DriveInfo]::GetDrives() |
+            Where-Object { $_.DriveType -eq 'Fixed' -and $_.IsReady -and $_.DriveFormat -eq 'NTFS' } |
+            Sort-Object AvailableFreeSpace -Descending | Select-Object -First 1
+          $freeGB = [math]::Round($drive.AvailableFreeSpace / 1GB, 1)
+          Write-Host "Using $($drive.Name) ($freeGB GB free)"
+          if ($freeGB -lt 30) { Write-Host "::warning::Only $freeGB GB free on $($drive.Name); the build may run out of space." }
+
+          $root = Join-Path $drive.RootDirectory.FullName 'nano11-ci'
+          $workDir = Join-Path $root 'work'
+          $sourceDir = Join-Path $root 'source'
+          New-Item -ItemType Directory -Force -Path $workDir, $sourceDir | Out-Null
+
+          # Real-time scanning of millions of servicing files slows DISM considerably.
+          try { Set-MpPreference -DisableRealtimeMonitoring $true -ErrorAction Stop; Write-Host "Defender real-time monitoring disabled." }
+          catch { Write-Host "Could not disable Defender real-time monitoring: $($_.Exception.Message)" }
+
+          # Windows PowerShell's >> writes UTF-16; the runner expects UTF-8.
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "work_dir=$workDir`nsource_dir=$sourceDir`n")
+
+      - name: Obtain Windows 11 ISO
+        id: iso
+        shell: powershell
+        env:
+          ISO_URL: ${{ inputs.iso_url || secrets.WINDOWS11_ISO_URL }}
+          ISO_SHA256: ${{ inputs.iso_sha256 }}
+          ISO_LANGUAGE: ${{ inputs.iso_language }}
+          ISO_ARCH: ${{ inputs.architecture }}
+          SOURCE_DIR: ${{ steps.workspace.outputs.source_dir }}
+        run: |
+          $isoPath = Join-Path $env:SOURCE_DIR 'windows11.iso'
+          $url = "$env:ISO_URL".Trim()
+
+          if ($url -and -not ($url -match '^https?://')) {
+            # Self-hosted runners may point at an ISO already on disk.
+            if (-not (Test-Path -LiteralPath $url)) { throw "iso_url is neither an http(s) URL nor an existing file." }
+            $isoPath = (Resolve-Path -LiteralPath $url).Path
+            $url = $null
+          } elseif (-not $url) {
+            Write-Host "No ISO URL supplied; requesting the latest Windows 11 ($env:ISO_ARCH, $env:ISO_LANGUAGE) link from Microsoft via Fido..."
+            $fido = Join-Path $env:RUNNER_TEMP 'Fido.ps1'
+            Invoke-WebRequest -UseBasicParsing -Uri "https://raw.githubusercontent.com/pbatard/Fido/$env:FIDO_REF/Fido.ps1" -OutFile $fido
+            $fidoOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fido -Win 11 -Rel Latest -Ed Pro -Lang "$env:ISO_LANGUAGE" -Arch "$env:ISO_ARCH" -GetUrl
+            $url = @($fidoOut | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match '^https://' }) | Select-Object -Last 1
+            if (-not $url) {
+              $fidoOut | ForEach-Object { Write-Host "  $_" }
+              throw ("Fido could not obtain a download link. Microsoft sometimes refuses requests from cloud IP ranges; " +
+                     "supply a direct link through the iso_url input or the WINDOWS11_ISO_URL repository secret instead.")
+            }
+            Write-Host "::add-mask::$url"
+          }
+
+          if ($url) {
+            Write-Host "Downloading source ISO from $(([uri]$url).Host)..."
+            & curl.exe --location --fail --silent --show-error --retry 5 --retry-delay 15 --output $isoPath $url
+            if ($LASTEXITCODE -ne 0) { throw "ISO download failed (curl exit code $LASTEXITCODE)." }
+          }
+
+          $iso = Get-Item -LiteralPath $isoPath
+          if ($iso.Length -lt 1GB) { throw "Source ISO is only $([math]::Round($iso.Length / 1MB)) MB; the download is probably not a Windows ISO." }
+
+          $hash = (Get-FileHash -LiteralPath $isoPath -Algorithm SHA256).Hash
+          Write-Host "Source ISO: $([math]::Round($iso.Length / 1GB, 2)) GB, SHA256 $hash"
+          $expected = "$env:ISO_SHA256".Trim()
+          if ($expected) {
+            if ($expected -notmatch '^[0-9A-Fa-f]{64}$') { throw "iso_sha256 is not a valid SHA256 hash." }
+            if ($hash -ne $expected.ToUpperInvariant()) { throw "Source ISO SHA256 mismatch: expected $expected, got $hash." }
+            Write-Host "SHA256 verified."
+          }
+          [IO.File]::AppendAllText($env:GITHUB_OUTPUT, "iso_path=$isoPath`n")
+          [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, "### Source ISO`n`n- Size: $([math]::Round($iso.Length / 1GB, 2)) GB`n- SHA256: ``$hash```n`n")
+
+      - name: Build nano11 ISO
+        id: build
+        shell: powershell
+        env:
+          SOURCE_ISO: ${{ steps.iso.outputs.iso_path }}
+          WORK_DIR: ${{ steps.workspace.outputs.work_dir }}
+        run: .\.github\scripts\Invoke-Nano11CI.ps1 -SourceIso $env:SOURCE_ISO -WorkDir $env:WORK_DIR
+
+      - name: Upload nano11 ISO
+        if: steps.build.outputs.iso_name != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: nano11-${{ inputs.profile }}-run${{ github.run_number }}
+          path: |
+            nano11_*.iso
+            nano11_SHA256SUMS.txt
+          compression-level: 0
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nano11-logs-run${{ github.run_number }}
+          path: |
+            logs/
+            nano11_report.html
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+          if-no-files-found: ignore
