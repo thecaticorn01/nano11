@@ -3901,7 +3901,7 @@ if ($removeLegacyFOD) {
     }
     & dism.exe /English "/image:$scratchDir" /Disable-Feature /Remove /FeatureName:SMB1Protocol > $null 2>&1
     Write-Host "  - Legacy capabilities (VBScript, ISE, WMP, SMB1) removed." -ForegroundColor Green
-} -ForegroundColor Cyan
+}
 $packagePatterns = @(
     "Microsoft-Windows-InternetExplorer-Optional-Package~",
     "Microsoft-Windows-MediaPlayer-Package~",
@@ -6529,7 +6529,7 @@ if ($Validate) {
                 $exists = Test-Path -LiteralPath (Join-Path -Path $verifyMount -ChildPath $kf)
                 $status = "{0} : {1}" -f $kf, $exists
                 $valLog += $status
-                Write-Host "  - Verification: $status" -ForegroundColor (if ($exists) { 'Green' } else { 'Yellow' })
+                Write-Host "  - Verification: $status" -ForegroundColor $(if ($exists) { 'Green' } else { 'Yellow' })
             }
             $valLog | Out-File (Join-Path -Path $baseWorkDir -ChildPath "verify-paths.txt") -Encoding utf8
         } finally {

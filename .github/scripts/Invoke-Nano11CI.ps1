@@ -302,6 +302,11 @@ if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Adm
     throw "The runner is not elevated. nano11builder.ps1 needs Administrator rights for DISM and offline registry servicing."
 }
 
+# Record the exact command in the logs artifact so a run's settings can be checked afterwards.
+$ciLogDir = Join-Path -Path $repoRoot -ChildPath 'logs'
+New-Item -ItemType Directory -Force -Path $ciLogDir | Out-Null
+Set-Content -LiteralPath (Join-Path -Path $ciLogDir -ChildPath 'ci-build-command.txt') -Value $commandLine -Encoding utf8
+
 $isDryRun = $builderParams.Contains('DryRun') -and $builderParams['DryRun']
 $buildStart = Get-Date
 
