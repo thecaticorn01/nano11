@@ -305,16 +305,28 @@ if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Adm
 $isDryRun = $builderParams.Contains('DryRun') -and $builderParams['DryRun']
 $buildStart = Get-Date
 
-# The builder relies on non-terminating errors being non-fatal.
-$ErrorActionPreference = 'Continue'
+# Run the builder in its own process, exactly like a local run. Invoking it in-process
+# from inside try/catch would turn its (normally non-fatal) statement errors into a
+# terminating error and abort the build. Parameters travel via CliXml so they are
+# still splatted with their real types rather than re-parsed from a command line.
+$paramsFile = Join-Path -Path ([System.IO.Path]::GetTempPath()) -ChildPath 'nano11-ci-params.xml'
+[hashtable]$splat = @{}
+foreach ($k in $builderParams.Keys) { $splat[$k] = $builderParams[$k] }
+$splat | Export-Clixml -LiteralPath $paramsFile
+
+$quote = { param($s) "'" + ($s -replace "'", "''") + "'" }
+$childCommand = "`$p = Import-Clixml -LiteralPath $(& $quote $paramsFile); & $(& $quote $builderPath) @p"
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $childCommand
+$builderExit = $LASTEXITCODE
+Remove-Item -LiteralPath $paramsFile -Force -ErrorAction SilentlyContinue
+
+# The builder's last native command is often robocopy (exit 1 = success), so the exit
+# code alone is not a reliable failure signal; the presence of the ISO decides below.
 $builderFailed = $false
-try {
-    & $builderPath @builderParams
-} catch {
-    $builderFailed = $true
-    Write-Host "::error::nano11builder.ps1 failed: $($_.Exception.Message)"
+if ($builderExit -ne 0) {
+    Write-Host "nano11builder.ps1 exited with code $builderExit."
+    if ($isDryRun) { $builderFailed = $true }
 }
-$ErrorActionPreference = 'Stop'
 
 if ($isDryRun) {
     Write-Host "Dry run requested; no ISO is expected."

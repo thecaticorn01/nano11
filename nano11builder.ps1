@@ -764,6 +764,12 @@ $script:TweakGroups = [ordered]@{
     CpuMitigations = @{ Default = $false; Risk = '★★★'; Description = 'Spectre/Meltdown speculative execution mitigations (Security trade-off)' }
 }
 
+# Active tweak group state (seeded from defaults; overridden by presets and -TweakGroupOverrides)
+$script:activeTweakGroups = @{}
+foreach ($tgName in $script:TweakGroups.Keys) {
+    $script:activeTweakGroups[$tgName] = [bool]$script:TweakGroups[$tgName].Default
+}
+
 $script:PowerPresets = [ordered]@{
     Desktop   = @{ UsbSuspend = 0; PcieLpm = 0; BoostAc = 2; BoostDc = 2; DiskIdle = 0 }
     Handheld  = @{ UsbSuspend = 0; PcieLpm = 1; BoostAc = 1; BoostDc = 1; DiskIdle = 60 }
