@@ -321,17 +321,40 @@ $splat | Export-Clixml -LiteralPath $paramsFile
 
 $quote = { param($s) "'" + ($s -replace "'", "''") + "'" }
 $childCommand = "`$p = Import-Clixml -LiteralPath $(& $quote $paramsFile); & $(& $quote $builderPath) @p"
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -Command $childCommand
-$builderExit = $LASTEXITCODE
+# -EncodedCommand sidesteps command-line quoting entirely.
+$encodedCommand = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($childCommand))
+$proc = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encodedCommand) -NoNewWindow -PassThru
+$null = $proc.Handle  # Windows PowerShell only reports ExitCode if the handle was opened while running
+$builderPid = $proc.Id
+$proc.WaitForExit()
+$builderExit = $proc.ExitCode
 Remove-Item -LiteralPath $paramsFile -Force -ErrorAction SilentlyContinue
+Write-Host "nano11builder.ps1 finished after $([math]::Round(((Get-Date) - $buildStart).TotalMinutes, 1)) min (exit code $builderExit)."
+
+# Anything the builder left running still holds this step's output pipe, and the runner
+# waits for that pipe to close, so the step would never finish. Report and stop them.
+$allProcs = @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue)
+$alivePids = @($allProcs | ForEach-Object { $_.ProcessId })
+# Windows keeps an orphan's original ParentProcessId, so walking down from the builder finds
+# its descendants. Processes started during the build whose parent has since exited (e.g. a
+# grandchild of a short-lived helper) cannot be traced that way, so they are included too.
+$leftovers = @($allProcs | Where-Object {
+    $_.CreationDate -ge $buildStart -and $_.ParentProcessId -notin $alivePids -and $_.ProcessId -ne $PID
+})
+$parents = @($builderPid) + @($leftovers | ForEach-Object { $_.ProcessId })
+while ($parents.Count -gt 0) {
+    $children = @($allProcs | Where-Object { $_.ParentProcessId -in $parents -and $_.ProcessId -notin $leftovers.ProcessId -and $_.ProcessId -ne $PID })
+    $leftovers += $children
+    $parents = @($children | ForEach-Object { $_.ProcessId })
+}
+foreach ($lp in $leftovers) {
+    Write-Host "::warning::Stopping process left running by the builder: $($lp.Name) (PID $($lp.ProcessId)) $($lp.CommandLine)"
+    Stop-Process -Id $lp.ProcessId -Force -ErrorAction SilentlyContinue
+}
 
 # The builder's last native command is often robocopy (exit 1 = success), so the exit
 # code alone is not a reliable failure signal; the presence of the ISO decides below.
-$builderFailed = $false
-if ($builderExit -ne 0) {
-    Write-Host "nano11builder.ps1 exited with code $builderExit."
-    if ($isDryRun) { $builderFailed = $true }
-}
+$builderFailed = $isDryRun -and $builderExit -ne 0
 
 if ($isDryRun) {
     Write-Host "Dry run requested; no ISO is expected."
@@ -340,6 +363,7 @@ if ($isDryRun) {
     exit 0
 }
 
+Write-Host "Locating the generated ISO..."
 $isos = @(Get-ChildItem -LiteralPath $repoRoot -Filter 'nano11_*.iso' -File -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -ge $buildStart.AddMinutes(-1) } |
     Sort-Object LastWriteTime -Descending)
@@ -353,7 +377,10 @@ if ($builderFailed -or $isos.Count -eq 0) {
 $hashLines = @()
 $summary = @('**Result:** :white_check_mark: build succeeded', '', '| ISO | Size | SHA256 |', '| --- | --- | --- |')
 foreach ($iso in $isos) {
+    Write-Host "Computing SHA256 of $($iso.Name) ($([math]::Round($iso.Length / 1GB, 2)) GB)..."
+    $hashTimer = [System.Diagnostics.Stopwatch]::StartNew()
     $hash = (Get-FileHash -LiteralPath $iso.FullName -Algorithm SHA256).Hash
+    Write-Host "  $hash ($([math]::Round($hashTimer.Elapsed.TotalSeconds)) s)"
     $hashLines += "$hash *$($iso.Name)"
     $summary += "| ``$($iso.Name)`` | $([math]::Round($iso.Length / 1GB, 2)) GB | ``$hash`` |"
 }

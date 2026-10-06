@@ -1320,7 +1320,7 @@ function Invoke-Nano11SelfTest {
             $astPass = $true
             $astMsg = "0 parser errors found in $([math]::Round($content.Length / 1KB, 1)) KB script"
         } else {
-            $astMsg = "$($errors.Count) syntax errors: " + ($errors | ForEach-Object { $_.Message } | Select-Object -First 3 -Join "; ")
+            $astMsg = "$($errors.Count) syntax errors: " + (($errors | ForEach-Object { $_.Message } | Select-Object -First 3) -join "; ")
         }
     } else {
         $astMsg = "$([System.IO.Path]::GetFileName($BuilderPath)) not found"
@@ -6485,7 +6485,7 @@ if ($oscdimgExe -and (Test-Path -LiteralPath $oscdimgExe)) {
             Write-Host "- You can copy the contents of nano11.iso directly into any FAT32 USB drive!" -ForegroundColor Green
             Write-Host "- Standard UEFI systems will boot seamlessly without needing NTFS or Rufus." -ForegroundColor Green
             Write-Host ""
-        } elseif (Test-Path -LiteralPath (Join-Path -Path "$nano11Dir\sources" -ChildPath "install.wim") -and ((Get-Item (Join-Path -Path "$nano11Dir\sources" -ChildPath "install.wim")).Length -gt 4000000000)) {
+        } elseif ((Test-Path -LiteralPath (Join-Path -Path "$nano11Dir\sources" -ChildPath "install.wim")) -and ((Get-Item (Join-Path -Path "$nano11Dir\sources" -ChildPath "install.wim")).Length -gt 4000000000)) {
             Write-Host "[IMPORTANT NOTE FOR BOOTABLE USB CREATION]" -ForegroundColor Cyan
             Write-Host "- install.wim is larger than 4GB. FAT32 cannot store files > 4GB." -ForegroundColor Yellow
             Write-Host "- When creating a bootable USB with Rufus, select 'NTFS' filesystem." -ForegroundColor Yellow

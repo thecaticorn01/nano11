@@ -258,6 +258,8 @@ jobs:
       - name: Build nano11 ISO
         id: build
         shell: powershell
+        # Leaves time inside the 6-hour job limit for the log upload if the build stalls.
+        timeout-minutes: 300
         env:
           SOURCE_ISO: ${{ steps.iso.outputs.iso_path }}
           WORK_DIR: ${{ steps.workspace.outputs.work_dir }}
